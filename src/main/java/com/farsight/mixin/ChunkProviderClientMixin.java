@@ -1,12 +1,14 @@
 package com.farsight.mixin;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import net.minecraft.client.Minecraft;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import net.minecraft.client.multiplayer.ChunkProviderClient;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.*;
+import net.minecraft.world.*;
+import net.minecraft.entity.*;
+import net.minecraft.util.LongHashMap;
+import java.util.HashMap;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -15,46 +17,56 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import cpw.mods.fml.common.Mod;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import cpw.mods.fml.relauncher.IFMLLoadingPlugin;
+import io.github.tox1cozz.mixinbooterlegacy.IEarlyMixinLoader;
 
 @Mixin(ChunkProviderClient.class)
 public abstract class ChunkProviderClientMixin
 {
-    @Shadow
-    @Final
-    private Long2ObjectMap<Chunk> loadedChunks;
+    private HashMap<Long, Chunk> loadedChunks;
 
     @Shadow
-    public abstract Chunk provideChunk(final int x, final int z);
+    public abstract Chunk provideChunk(int p_73154_1_, int p_73154_2_);
 
+    @Shadow
+    public abstract void unloadChunk(int p_73234_1_, int p_73234_2_);
+    
     @Unique
-    private final Long2ObjectMap<ChunkPos> toUnload = new Long2ObjectOpenHashMap<>(200);
+    private final HashMap<Long,ChunkCoordIntPair> toUnload = new HashMap<Long,ChunkCoordIntPair>(200);
 
     @Inject(method = "unloadChunk", at = @At("HEAD"), cancellable = true)
-    private void onUnload(final int x, final int z, final CallbackInfo ci)
+    private void onUnload(final int p_73234_1_,final int p_73234_2_, final CallbackInfo ci)
     {
         ci.cancel();
-        toUnload.put(ChunkPos.asLong(x, z), new ChunkPos(x, z));
+        toUnload.put(ChunkCoordIntPair.chunkXZ2Int(p_73234_1_, p_73234_2_), new ChunkCoordIntPair(p_73234_1_, p_73234_2_)); 
     }
 
-    @Inject(method = "tick", at = @At("RETURN"))
+    @Inject(method = "unloadQueuedChunks", at = @At("RETURN"))
     private void onTick(final CallbackInfoReturnable<Boolean> cir)
     {
-        ObjectIterator<ChunkPos> objectiterator = this.toUnload.values().iterator();
+    	Iterator<Entry<Long,ChunkCoordIntPair> > objectiterator = this.toUnload.entrySet().iterator();
         while (objectiterator.hasNext())
         {
-            ChunkPos pos = objectiterator.next();
-            if (pos.getDistanceSq(Minecraft.getMinecraft().player) > (64 * 16 * 64 * 16))
+        	ChunkCoordIntPair pos = objectiterator.next().getValue();
+        	if (getDistanceSq(pos,Minecraft.getMinecraft().thePlayer) > (64 * 16 * 64 * 16))
             {
-                final Chunk chunk = this.provideChunk(pos.x, pos.z);
-
-                if (!chunk.isEmpty())
-                {
-                    chunk.onUnload();
-                }
-
-                this.loadedChunks.remove(ChunkPos.asLong(pos.x, pos.z));
-                objectiterator.remove();
+            	this.unloadChunk(pos.chunkXPos,pos.chunkZPos);
+            	objectiterator.remove();
             }
         }
+    }
+    
+    private static double getDistanceSq(ChunkCoordIntPair pos,Entity entityIn)
+    {
+        double d0 = (double)(pos.chunkXPos * 16 + 8);
+        double d1 = (double)(pos.chunkZPos * 16 + 8);
+        double d2 = d0 - entityIn.posX;
+        double d3 = d1 - entityIn.posZ;
+        return d2 * d2 + d3 * d3;
     }
 }
